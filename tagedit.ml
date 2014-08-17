@@ -130,25 +130,27 @@ let close_file f =
 	{ f with file_open = false }
 
 
-let substitude_tags =
+let substitute_tags =
 	let open Pcre in
 	let counter = ref 0 in
 	let l = [
-		regexp "%t", tag_title;
-		regexp "%b", tag_album;
-		regexp "%a", tag_artist;
-		regexp "%c", tag_comment;
-		regexp "%g", tag_genre;
-		regexp "%n", (fun f -> Printf.sprintf "%02i" (try tag_track f with _ -> incr counter; !counter));
-		regexp "%y", (fun f -> Printf.sprintf "%4i" (tag_year f));
+		regexp "%t", (fun _ -> tag_title);
+		regexp "%b", (fun _ -> tag_album);
+		regexp "%a", (fun _ -> tag_artist);
+		regexp "%c", (fun _ -> tag_comment);
+		regexp "%g", (fun _ -> tag_genre);
+		regexp "%n", (fun _ file -> Printf.sprintf "%02i" (try tag_track file with _ -> incr counter; !counter));
+		regexp "%y", (fun _ file -> Printf.sprintf "%4i" (tag_year file));
+		regexp "%f", (fun f _ -> f.path);
+		regexp "%F", (fun f _ -> FilePath.basename f.path);
 	] in
 	fun f s ->
 		let file = get_file f in
-	  	List.fold_left (fun prev (rex, fn) -> qreplace ~rex ~templ:(try fn file with _ -> "_") prev) s l
+	  	List.fold_left (fun prev (rex, fn) -> qreplace ~rex ~templ:(try fn f file with _ -> "_") prev) s l
 
 let move_file =
 	let process p f =
-		let s = substitude_tags f p in
+		let s = substitute_tags f p in
 		let dir = FilePath.dirname s in
 		mkdir dir;
 		let s = s ^ "." ^ (get_extension f) in
@@ -161,7 +163,7 @@ let move_file =
 	fun p -> Unix.handle_unix_error (process p)
 
 let print_file f s =
-	let s = substitude_tags f s in
+	let s = substitute_tags f s in
 	print_endline s;
 	f
 
@@ -276,7 +278,7 @@ Filters:
 	comment=...
 
 	dry_run
-	print=%a/%b...
+	print=%a/%b... // additional: %f=full filename, %F=basename
 ";
 	exit 1
 
