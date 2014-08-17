@@ -221,27 +221,6 @@ let scan_name =
 
 (********************************************)
 
-let get_files_list dir =
-	let dirs = Hashtbl.create 101 in
-	let files = ref [] in
-	let rec loop p =
-		if Sys.file_exists p then
-			if Sys.is_directory p && not (Hashtbl.mem dirs p) then (
-				Hashtbl.add dirs p ();
-				let dirs = Sys.readdir p in
-				Array.iter (fun el -> loop (p ^ "/" ^ el)) dirs
-			) else (
-				try
-					files := open_file p :: !files
-				with
-					| _ -> ()
-			)
-	in
-	loop dir;
-	List.rev !files
-
-(********************************************)
-
 type filter =
 	| FixCyrillic
 	| FixChars of string
@@ -359,12 +338,40 @@ let process_file filters f =
 	let _ = close_file f in
 	()
 
+(********************************************)
+
+let find_and_process filters dir =
+	let dirs = Hashtbl.create 101 in
+	let files = ref [] in
+	let rec loop p =
+		if Sys.file_exists p then
+			if Sys.is_directory p && not (Hashtbl.mem dirs p) then (
+				Hashtbl.add dirs p ();
+				let dirs = Sys.readdir p in
+				Array.iter (fun el -> loop (p ^ "/" ^ el)) dirs
+			) else (
+				try
+					files := open_file p :: !files;
+					if List.length !files > 10 then (
+						if !dry_run then (
+							Printf.eprintf "Collected 10 files, process them\n";
+							flush stderr
+						);
+						List.iter (process_file filters) (List.rev !files);
+						files := [];
+					)
+				with
+					| _ -> ()
+			)
+	in
+	loop dir;
+	List.iter (process_file filters) (List.rev !files)
+
+(********************************************)
+
 let () =
 	let (path, filters) = parse_args () in
 	if !dry_run then Printf.eprintf "Filters applied: %s\n" (string_of_filters filters);
 	if List.length filters = 0 then
 		fatal "No filters specified";
-	let files = get_files_list path in
-	Printf.printf "Found %i files\n" (List.length files);
-	List.iter (process_file filters) files
-
+	find_and_process filters path
