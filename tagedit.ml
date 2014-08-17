@@ -5,6 +5,7 @@ type ft = {
 	path : string;
 	file : File.file_type File.file;
 	tags_saved : bool;
+	file_open : bool;
 }
 
 let dry_run = ref false
@@ -109,17 +110,25 @@ let get_extension f =
 let open_file path =
 	let open Taglib in
 	let file = File.open_file `Autodetect path in
-	{ path; file; tags_saved = true }
+	{ path; file; tags_saved = true; file_open = true; }
 
 let close_file f =
 	let file = get_file f in
-	if not f.tags_saved then
-		if !dry_run then
-			Printf.eprintf "Save tags to file '%s'\n" f.path
-		else
-			if not (File.file_save file) then
-				fatal (Printf.sprintf "Cannot save tags to file %s\n" f.path);
-	File.close_file file
+	let f = 
+		if not f.tags_saved then (
+			if !dry_run then
+				Printf.eprintf "Save tags to file '%s'\n" f.path
+			else
+				if not (File.file_save file) then
+					fatal (Printf.sprintf "Cannot save tags to file %s\n" f.path);
+			{ f with tags_saved = true }
+		) else
+			f
+	in
+	if f.file_open then
+		File.close_file file;
+	{ f with file_open = false }
+
 
 let substitude_tags =
 	let open Pcre in
@@ -147,8 +156,7 @@ let move_file =
 			Printf.eprintf "rename file '%s' to '%s'\n" f.path s
 		else
 			Unix.rename f.path s;
-		close_file f;
-		f
+		close_file f
 	in
 	fun p -> Unix.handle_unix_error (process p)
 
@@ -267,7 +275,6 @@ let parse_args =
 			| _ :: path :: lst ->
 				let filters = List.map parse_arg lst in
 				let filters = List.concat filters in
-				let filters = List.rev filters in
 				path, filters
 
 let process_filter f = function
@@ -283,12 +290,29 @@ let process_filter f = function
 	| Track s -> set_track f s
 	| Print s -> print_file f s
 
+let string_of_filter = function
+	| FixCyrillic -> "fix_cyrillic"
+	| FixChars _ -> "fix_chars"
+	| MoveFile _ -> "move_file"
+	| Title _ -> "title"
+	| Album _ -> "album"
+	| Artist _ -> "artist"
+	| Genre _ -> "genre"
+	| Comment _ -> "comment"
+	| Year _ -> "year"
+	| Track _ -> "track"
+	| Print _ -> "print"
+
+let string_of_filters l = List.map string_of_filter l |> String.concat " "
+
 let process_file filters f =
 	let f = List.fold_left process_filter f filters in
-	close_file f
+	let _ = close_file f in
+	()
 
 let () =
 	let (path, filters) = parse_args () in
+	if !dry_run then Printf.eprintf "Filters applied: %s\n" (string_of_filters filters);
 	if List.length filters = 0 then
 		fatal "No filters specified";
 	let files = get_files_list path in
