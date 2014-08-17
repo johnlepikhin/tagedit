@@ -165,6 +165,7 @@ let print_file f s =
 	print_endline s;
 	f
 
+
 (* Set tags *)
 
 let set_title f s = tag_set_title f.file s; f
@@ -174,6 +175,46 @@ let set_genre f s = tag_set_genre f.file s; f
 let set_comment f s = tag_set_comment f.file s; f
 let set_year f s = tag_set_year f.file s; f
 let set_track f s = tag_set_track f.file s; f
+
+
+(* Scan filename *)
+
+let scan_name =
+	let open Pcre in
+	let subst_rex = regexp "(%[tbacgny])" in
+	fun mask f ->
+		let accepters = ref [] in
+		let subst s =
+			let f = match s.[1] with
+				| 't' -> tag_set_title
+				| 'b' -> tag_set_album
+				| 'a' -> tag_set_artist
+				| 'g' -> tag_set_genre
+				| 'c' -> tag_set_comment
+				| 'y' -> fun f s -> int_of_string s |> tag_set_year f
+				| 'n' -> fun f s -> int_of_string s |> tag_set_track f
+				| _ -> fatal "??"
+			in
+			accepters := f :: !accepters;
+			"(.+?)"
+		in
+		let rex = substitute ~rex:subst_rex ~subst mask |> regexp in
+		let accepters = List.rev !accepters in
+		let filename = FilePath.basename f.path in
+		let fatal () = fatal (Printf.sprintf "Filename scanner '%s' do not match with filename '%s'" mask filename) in
+		try
+			let r = exec ~rex filename in
+			for i=1 to List.length accepters do
+				try
+					let s = get_substring r i in
+					let fn = List.nth accepters (i-1) in
+					fn f.file s;
+				with
+					| e -> print_endline (Printexc.to_string e); exit 1
+			done;
+			f
+		with
+			| _ -> fatal ()
 
 
 (********************************************)
@@ -211,6 +252,7 @@ type filter =
 	| Year of int
 	| Track of int
 	| Print of string
+	| ScanName of string
 
 let usage () = print_endline "
 
@@ -222,6 +264,8 @@ Filters:
 	fix_chars=/()%...
 
 	move_file='/new/path/%a/%y - %b/%n - %t'
+
+	scan_filename='%a - %t.mp3'
 
 	title=...
 	album=...
@@ -265,6 +309,7 @@ let parse_args =
 				| "track" -> [Track (get_i arg)]
 				| "print" -> [Print (get_v arg)]
 				| "dry_run" -> dry_run := true; []
+				| "scan_name" -> [ScanName (get_v arg)]
 				| _ -> error arg
 		with
 			| _ -> error arg
@@ -289,6 +334,7 @@ let process_filter f = function
 	| Year s -> set_year f s
 	| Track s -> set_track f s
 	| Print s -> print_file f s
+	| ScanName mask -> scan_name mask f
 
 let string_of_filter = function
 	| FixCyrillic -> "fix_cyrillic"
@@ -302,6 +348,7 @@ let string_of_filter = function
 	| Year _ -> "year"
 	| Track _ -> "track"
 	| Print _ -> "print"
+	| ScanName _ -> "scan_name"
 
 let string_of_filters l = List.map string_of_filter l |> String.concat " "
 
