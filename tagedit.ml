@@ -187,7 +187,7 @@ let get_files_list dir =
 			)
 	in
 	loop dir;
-	!files
+	List.rev !files
 
 (********************************************)
 
@@ -267,6 +267,7 @@ let parse_args =
 			| _ :: path :: lst ->
 				let filters = List.map parse_arg lst in
 				let filters = List.concat filters in
+				let filters = List.rev filters in
 				path, filters
 
 let process_filter f = function
