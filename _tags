@@ -1,0 +1,2 @@
+<*.ml> : package(taglib), package(text), package(pcre), package(fileutils)
+<*.native> : package(taglib), package(text), package(pcre), package(fileutils)
