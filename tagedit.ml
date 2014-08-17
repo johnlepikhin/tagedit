@@ -7,6 +7,8 @@ type ft = {
 	tags_saved : bool;
 }
 
+let dry_run = ref false
+
 let fatal s =
 	Printf.eprintf "FATAL: %s\n" s;
 	exit 1
@@ -43,13 +45,18 @@ let fix_charset f =
 	let file = get_file f in
 	let enc = detect_charset file in
 	match enc with
-		| None -> f
-		| Some enc -> map_tags (recode enc) f
+		| None ->
+			if !dry_run then Printf.eprintf "fix_charset: no invalid russian charset found\n";
+			f
+		| Some enc ->
+			if !dry_run then Printf.eprintf "fix_charset: fixing russian charset\n";
+			map_tags (recode enc) f
 
 
 (* Replace characters *)
 
 let fix_chars chars f =
+	if !dry_run then Printf.eprintf "fix_chars: fixing chars: '%s'\n" chars;
 	let rex = Pcre.regexp ("[" ^ chars ^ "]+") in
 	map_tags (Pcre.qreplace ~rex ~templ:"_") f
 
@@ -70,7 +77,10 @@ let mkdir =
 					let _ = List.fold_left (fun prev el ->
 						let el = prev ^ "/" ^ el in
 						if not (Sys.file_exists el) then
-							Unix.mkdir el 0o755;
+							if !dry_run then
+								Printf.eprintf "mkdir %s\n" el
+							else
+								Unix.mkdir el 0o755;
 						el
 					) hd tl in
 					Hashtbl.add cache p ()
@@ -104,11 +114,14 @@ let open_file path =
 let close_file f =
 	let file = get_file f in
 	if not f.tags_saved then
-		if not (File.file_save file) then
-			fatal (Printf.sprintf "Cannot save tags to file %s\n" f.path);
+		if !dry_run then
+			Printf.eprintf "Save tags to file '%s'\n" f.path
+		else
+			if not (File.file_save file) then
+				fatal (Printf.sprintf "Cannot save tags to file %s\n" f.path);
 	File.close_file file
 
-let move_file =
+let substitude_tags =
 	let open Pcre in
 	let counter = ref 0 in
 	let l = [
@@ -120,18 +133,29 @@ let move_file =
 		regexp "%n", (fun f -> Printf.sprintf "%02i" (try tag_track f with _ -> incr counter; !counter));
 		regexp "%y", (fun f -> Printf.sprintf "%4i" (tag_year f));
 	] in
-	let process p f =
+	fun f s ->
 		let file = get_file f in
-		let s = List.fold_left (fun prev (rex, fn) -> qreplace ~rex ~templ:(try fn file with _ -> "_") prev) p l in
+	  	List.fold_left (fun prev (rex, fn) -> qreplace ~rex ~templ:(try fn file with _ -> "_") prev) s l
+
+let move_file =
+	let process p f =
+		let s = substitude_tags f p in
 		let dir = FilePath.dirname s in
 		mkdir dir;
 		let s = s ^ "." ^ (get_extension f) in
-		Unix.rename f.path s;
+		if !dry_run then
+			Printf.eprintf "rename file '%s' to '%s'\n" f.path s
+		else
+			Unix.rename f.path s;
 		close_file f;
 		f
 	in
 	fun p -> Unix.handle_unix_error (process p)
 
+let print_file f s =
+	let s = substitude_tags f s in
+	print_endline s;
+	f
 
 (* Set tags *)
 
@@ -178,6 +202,7 @@ type filter =
 	| Comment of string
 	| Year of int
 	| Track of int
+	| Print of string
 
 let usage () = print_endline "
 
@@ -187,7 +212,9 @@ Filters:
 
 	fix_cyrillic
 	fix_chars=/()%...
+
 	move_file='/new/path/%a/%y - %b/%n - %t'
+
 	title=...
 	album=...
 	artist=...
@@ -195,6 +222,9 @@ Filters:
 	track=...
 	genre=...
 	comment=...
+
+	dry_run
+	print=%a/%b...
 ";
 	exit 1
 
@@ -215,16 +245,18 @@ let parse_args =
 		try
 			let key = Pcre.get_substring r 1 in
 			match key with
-				| "fix_cyrillic" -> FixCyrillic
-				| "fix_chars" -> FixChars (get_v arg)
-				| "move_file" -> MoveFile (get_v arg)
-				| "title" -> Title (get_v arg)
-				| "album" -> Album (get_v arg)
-				| "artist" -> Artist (get_v arg)
-				| "genre" -> Genre (get_v arg)
-				| "comment" -> Comment (get_v arg)
-				| "year" -> Year (get_i arg)
-				| "track" -> Track (get_i arg)
+				| "fix_cyrillic" -> [FixCyrillic]
+				| "fix_chars" -> [FixChars (get_v arg)]
+				| "move_file" -> [MoveFile (get_v arg)]
+				| "title" -> [Title (get_v arg)]
+				| "album" -> [Album (get_v arg)]
+				| "artist" -> [Artist (get_v arg)]
+				| "genre" -> [Genre (get_v arg)]
+				| "comment" -> [Comment (get_v arg)]
+				| "year" -> [Year (get_i arg)]
+				| "track" -> [Track (get_i arg)]
+				| "print" -> [Print (get_v arg)]
+				| "dry_run" -> dry_run := true; []
 				| _ -> error arg
 		with
 			| _ -> error arg
@@ -234,6 +266,7 @@ let parse_args =
 			| [] | [_] | [_; _] -> usage ()
 			| _ :: path :: lst ->
 				let filters = List.map parse_arg lst in
+				let filters = List.concat filters in
 				path, filters
 
 let process_filter f = function
@@ -247,10 +280,11 @@ let process_filter f = function
 	| Comment s -> set_comment f s
 	| Year s -> set_year f s
 	| Track s -> set_track f s
+	| Print s -> print_file f s
 
 let process_file filters f =
-	let _ = List.fold_left process_filter f filters in
-	()
+	let f = List.fold_left process_filter f filters in
+	close_file f
 
 let () =
 	let (path, filters) = parse_args () in
