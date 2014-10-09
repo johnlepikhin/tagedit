@@ -170,13 +170,15 @@ let print_file f s =
 
 (* Set tags *)
 
-let set_title f s = tag_set_title f.file s; f
-let set_album f s = tag_set_album f.file s; f
-let set_artist f s = tag_set_artist f.file s; f
-let set_genre f s = tag_set_genre f.file s; f
-let set_comment f s = tag_set_comment f.file s; f
-let set_year f s = tag_set_year f.file s; f
-let set_track f s = tag_set_track f.file s; f
+let not_saved f = { f with tags_saved = false }
+
+let set_title f s = tag_set_title f.file s; not_saved f
+let set_album f s = tag_set_album f.file s; not_saved f
+let set_artist f s = tag_set_artist f.file s; not_saved f
+let set_genre f s = tag_set_genre f.file s; not_saved f
+let set_comment f s = tag_set_comment f.file s; not_saved f
+let set_year f s = tag_set_year f.file s; not_saved f
+let set_track f s = tag_set_track f.file s; not_saved f
 
 
 (* Scan filename *)
